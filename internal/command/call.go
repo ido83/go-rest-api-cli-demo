@@ -1,14 +1,18 @@
 package command
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"go-rest-api-cli-demo/internal/auth"
+	cfgstore "go-rest-api-cli-demo/internal/config"
 	"go-rest-api-cli-demo/internal/httpclient"
 	"go-rest-api-cli-demo/internal/payload"
 )
@@ -30,7 +34,8 @@ func (c *CallCommand) Run(args []string) error {
 
 	var (
 		method       = fs.String("method", "GET", "HTTP method (GET, POST, PUT, DELETE, PATCH...)")
-		urlStr       = fs.String("url", "", "Request URL")
+		urlStr       = fs.String("url", "", "Request URL (absolute or relative, when using --profile)")
+		profileName  = fs.String("profile", "", "Profile name to use from config")
 		inlineJSON   = fs.String("data", "", "Inline JSON body")
 		jsonFilePath = fs.String("json-file", "", "Path to JSON file with extra payload")
 		timeoutSec   = fs.Int("timeout", 30, "Timeout in seconds")
@@ -40,10 +45,16 @@ func (c *CallCommand) Run(args []string) error {
 		user     = fs.String("user", "", "Username for basic auth")
 		pass     = fs.String("pass", "", "Password for basic auth")
 		token    = fs.String("token", "", "Bearer token")
+
+		pretty    = fs.Bool("pretty", false, "Pretty-print JSON responses")
+		raw       = fs.Bool("raw", false, "Print only response body (no status/headers)")
+		jsonOnly  = fs.Bool("json-only", false, "If response is JSON, print only JSON body")
+		outPath   = fs.String("out", "", "Write response body to file")
+		retries   = fs.Int("retries", 0, "Number of retries on failure (network/5xx)")
+		retryWait = fs.Int("retry-delay", 1, "Delay between retries in seconds")
 	)
 
 	headers := HeaderFlag{} // initialized non-nil
-
 	fs.Var(&headers, "header", "HTTP header 'Key: Value' (can be repeated)")
 
 	if err := fs.Parse(args); err != nil {
@@ -52,6 +63,40 @@ func (c *CallCommand) Run(args []string) error {
 
 	if *urlStr == "" {
 		return fmt.Errorf("--url is required")
+	}
+
+	// Load profiles if requested
+	var (
+		baseURLFromProfile string
+		profileHeaders     map[string]string
+		profileAuthType    string
+		profileUser        string
+		profilePass        string
+		profileToken       string
+	)
+	if *profileName != "" {
+		cfg, err := cfgstore.Load()
+		if err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
+		p, ok := cfg.Profiles[*profileName]
+		if !ok {
+			return fmt.Errorf("profile %q not found", *profileName)
+		}
+		baseURLFromProfile = p.BaseURL
+		profileHeaders = p.Headers
+		profileAuthType = strings.ToLower(p.AuthType)
+		profileUser = p.User
+		profilePass = p.Pass
+		profileToken = p.Token
+	}
+
+	// Effective URL (profile base URL + relative path)
+	finalURL := *urlStr
+	if baseURLFromProfile != "" &&
+		!strings.HasPrefix(strings.ToLower(*urlStr), "http://") &&
+		!strings.HasPrefix(strings.ToLower(*urlStr), "https://") {
+		finalURL = strings.TrimRight(baseURLFromProfile, "/") + "/" + strings.TrimLeft(*urlStr, "/")
 	}
 
 	// JSON: load file + inline, merge
@@ -73,6 +118,17 @@ func (c *CallCommand) Run(args []string) error {
 		}
 	}
 
+	// Merge headers: profile headers first, then CLI overrides
+	effectiveHeaders := HeaderFlag{}
+	if profileHeaders != nil {
+		for k, v := range profileHeaders {
+			effectiveHeaders[k] = v
+		}
+	}
+	for k, v := range headers {
+		effectiveHeaders[k] = v
+	}
+
 	var body []byte
 	if len(fileMap) > 0 || len(inlineMap) > 0 {
 		merged := payload.Merge(fileMap, inlineMap)
@@ -82,43 +138,64 @@ func (c *CallCommand) Run(args []string) error {
 		}
 
 		// Ensure Content-Type if not set
-		if _, ok := headers["Content-Type"]; !ok {
-			headers["Content-Type"] = "application/json"
+		if _, ok := effectiveHeaders["Content-Type"]; !ok {
+			effectiveHeaders["Content-Type"] = "application/json"
 		}
 	}
 
-	// Choose auth strategy
+	// Choose auth strategy (profile defaults + CLI overrides)
+	finalAuthType := strings.ToLower(*authType)
+	finalUser := *user
+	finalPass := *pass
+	finalToken := *token
+
+	// Use profile defaults if CLI didn't override
+	if *profileName != "" {
+		if (finalAuthType == "" || finalAuthType == "none") && profileAuthType != "" && profileAuthType != "none" {
+			finalAuthType = profileAuthType
+		}
+		if finalUser == "" && profileUser != "" {
+			finalUser = profileUser
+		}
+		if finalPass == "" && profilePass != "" {
+			finalPass = profilePass
+		}
+		if finalToken == "" && profileToken != "" {
+			finalToken = profileToken
+		}
+	}
+
 	var authStrategy auth.Strategy = auth.NoAuth{}
-	switch strings.ToLower(*authType) {
+	switch finalAuthType {
 	case "basic":
-		authStrategy = auth.Basic{User: *user, Pass: *pass}
+		authStrategy = auth.Basic{User: finalUser, Pass: finalPass}
 	case "bearer":
-		authStrategy = auth.Bearer{Token: *token}
-	case "none":
-		// default
+		authStrategy = auth.Bearer{Token: finalToken}
+	case "", "none":
+		// default no auth
 	default:
-		return fmt.Errorf("unknown auth type: %s", *authType)
+		return fmt.Errorf("unknown auth type: %s", finalAuthType)
 	}
 
 	cfg := httpclient.Config{
 		Method:        strings.ToUpper(*method),
-		URL:           *urlStr,
-		Headers:       headers,
+		URL:           finalURL,
+		Headers:       effectiveHeaders,
 		Body:          body,
 		Timeout:       time.Duration(*timeoutSec) * time.Second,
 		Auth:          authStrategy,
 		SkipTLSVerify: *insecure,
 	}
 
-	req, client, err := c.Factory.Build(cfg)
+	// Print request preview (once)
+	reqPreview, _, err := c.Factory.Build(cfg)
 	if err != nil {
-		return fmt.Errorf("build request: %w", err)
+		return fmt.Errorf("build request preview: %w", err)
 	}
 
-	// Print request
 	fmt.Println("=== Request ===")
-	fmt.Printf("%s %s\n", req.Method, req.URL.String())
-	for k, v := range req.Header {
+	fmt.Printf("%s %s\n", reqPreview.Method, reqPreview.URL.String())
+	for k, v := range reqPreview.Header {
 		fmt.Printf("%s: %s\n", k, strings.Join(v, ", "))
 	}
 	if len(body) > 0 {
@@ -127,10 +204,47 @@ func (c *CallCommand) Run(args []string) error {
 		fmt.Println(string(body))
 	}
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
+	// Retry logic
+	attempts := *retries + 1
+	if attempts < 1 {
+		attempts = 1
 	}
+
+	var (
+		resp    *http.Response
+		lastErr error
+	)
+
+	for i := 0; i < attempts; i++ {
+		req, client, err := c.Factory.Build(cfg)
+		if err != nil {
+			return fmt.Errorf("build request: %w", err)
+		}
+
+		resp, err = client.Do(req)
+		if err != nil {
+			lastErr = err
+		} else if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
+			lastErr = fmt.Errorf("received HTTP %d", resp.StatusCode)
+		} else {
+			lastErr = nil
+			break
+		}
+
+		if resp != nil {
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+		}
+
+		if i < attempts-1 {
+			time.Sleep(time.Duration(*retryWait) * time.Second)
+		}
+	}
+
+	if lastErr != nil {
+		return fmt.Errorf("request failed after %d attempt(s): %w", attempts, lastErr)
+	}
+
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
@@ -138,13 +252,42 @@ func (c *CallCommand) Run(args []string) error {
 		return fmt.Errorf("read response: %w", err)
 	}
 
-	fmt.Println("\n=== Response ===")
-	fmt.Printf("Status: %s\n", resp.Status)
-	for k, v := range resp.Header {
-		fmt.Printf("%s: %s\n", k, strings.Join(v, ", "))
+	// Decide how to print based on flags
+	contentType := strings.ToLower(resp.Header.Get("Content-Type"))
+	isJSON := strings.HasPrefix(contentType, "application/json")
+
+	bodyToPrint := respBody
+	if isJSON && *pretty {
+		var buf bytes.Buffer
+		if err := json.Indent(&buf, respBody, "", "  "); err == nil {
+			bodyToPrint = buf.Bytes()
+		}
 	}
-	fmt.Println()
-	fmt.Println(string(respBody))
+
+	// json-only overrides raw if both set
+	if *jsonOnly {
+		// Only print body (pretty if requested)
+		fmt.Println(string(bodyToPrint))
+	} else if *raw {
+		// Raw body only
+		fmt.Println(string(bodyToPrint))
+	} else {
+		// Default: status + headers + body
+		fmt.Println("\n=== Response ===")
+		fmt.Printf("Status: %s\n", resp.Status)
+		for k, v := range resp.Header {
+			fmt.Printf("%s: %s\n", k, strings.Join(v, ", "))
+		}
+		fmt.Println()
+		fmt.Println(string(bodyToPrint))
+	}
+
+	// Save to file if requested
+	if *outPath != "" {
+		if err := os.WriteFile(*outPath, bodyToPrint, 0o644); err != nil {
+			return fmt.Errorf("failed to write response to file: %w", err)
+		}
+	}
 
 	return nil
 }

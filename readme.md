@@ -9,26 +9,64 @@ A small, cross-platform Go CLI tool for making REST API calls.
     - inline `--data`
     - JSON file `--json-file`
     - **merged** (file + inline) with override
-- Supports **headers** and simple **auth strategies** (none/basic/bearer)
-- Uses Go OOP-style design: **Command**, **Factory**, **Strategy (Auth)**
+- Profiles for **base URL + default headers/auth**
+- Output strategies: `--pretty`, `--raw`, `--json-only`
+- Save response to file: `--out`
+- Retry logic: `--retries`, `--retry-delay`
+- Uses Go “OOP-style” design: **Command**, **Factory**, **Strategy (Auth)**, config module
 
----
+## Features (current)
+### Commands
 
-## Features
+- `call` – execute a REST API call
+- `profile` – manage saved profiles:
+    - `profile add`
+    - `profile list`
+    - `profile remove`
+- `inspect` – inspect stored profiles:
+    - `inspect profiles`
+    - `inspect profile --name NAME`
+- `help` – show help and examples
 
-- **Command pattern**: subcommands like `call`, `help`
-- **Factory pattern** for constructing HTTP request + client
-- **Auth strategy pattern**:
-    - no auth
-    - basic auth
-    - bearer token
-- **JSON payload handling**:
-    - load from file
-    - parse inline JSON string
-    - merge file + inline (inline overrides duplicate keys)
-- **Cross-platform**:
-    - single static binary
-    - no third-party libraries
+### Profiles
+
+Profiles let you save:
+
+- Base URL (e.g. `https://api.example.com`)
+- Default headers (`X-Env`, auth headers, etc.)
+- Default auth:
+    - `none`
+    - `basic` (user/pass)
+    - `bearer` (token)
+
+Then you call APIs with `--profile` so you don’t repeat all parameters each time.
+
+### Output strategies
+
+- `--pretty`  
+  Pretty-print JSON responses (if `Content-Type` is JSON).
+- `--json-only`  
+  Only print the JSON body (no status/headers).
+- `--raw`  
+  Print **only** the response body (any content).
+
+Order of precedence:
+
+- If `--json-only` is set → JSON body only (pretty if `--pretty`).
+- Else if `--raw` is set → body only as-is (or pretty JSON).
+- Else (default) → status, headers, then body.
+
+### Save response to a file
+
+- `--out path/to/file.json`  
+  Writes the final printed body (raw or pretty JSON) to a file.
+
+### Retry logic
+
+- `--retries N` – number of retries on:
+    - network errors
+    - HTTP `5xx` responses
+- `--retry-delay SECONDS` – delay between retries
 
 ---
 
@@ -45,42 +83,92 @@ go-rest-api-cli/
       factory.go       # HTTP request/client factory
     payload/
       json.go          # JSON helpers (file, inline, merge)
+    config/
+      config.go        # Profiles + config file load/save
     command/
       command.go       # Command interface & registry
       headers.go       # HeaderFlag for repeated --header
       call.go          # "call" command implementation
-      help.go          # "help" command implementation
+      profile.go       # "profile" command (add/list/remove)
+      inspect.go       # "inspect" command (view profiles)
+      help.go          # "help" command
 
 
-
-High-level architecture
+```
+Code is structure:
 main.go
-Creates a command registry
-Registers call and help commands
-Dispatches based on os.Args[1]
-internal/command
-Command interface and registry
-CallCommand implements the REST API logic
-HelpCommand prints usage information
-internal/httpclient
-Factory builds *http.Request and *http.Client from a config struct
-internal/auth
-Auth strategies implementing a common Strategy interface
-internal/payload
-JSON helpers: load, parse, merge
-
-Getting started
-Requirements:
-Go (any modern version, e.g. 1.20+)
-Clone / copy
-Copy the source files into a folder, for example:
-
-mkdir go-rest-api-cli
-cd go-rest-api-cli
-# place main.go and internal/ here
+*   Creates a command.Registry
+*   Registers:
+*
+  * CallCommand
+  * ProfileCommand
+  * InspectCommand
+  * HelpCommand
+* Reads os.Args[1] to decide which command to run
+  internal/command
+* 
+  * Command interface:
+```
+type Command interface {
+    Name() string
+    Description() string
+    Run(args []string) error
+}
 ```
 
-Example go.mod
+* Registry holds and dispatches commands.
+* CallCommand:
+    * Parses CLI flags (--method, --url, --profile, --data, --json-file, --pretty, --raw, --json-only, --out, --retries, etc.)
+    * Loads profile (if --profile is used)
+    * Merges:
+        * profile base URL + relative --url
+        * profile headers + --header flags
+        * profile auth + CLI auth flags
+    * Builds httpclient.Config and uses httpclient.Factory to create an HTTP request & client
+    * Handles retries
+    * Handles formatting of the response and writing to file
+* ProfileCommand:
+    * profile add ... -> loads config, adds/updates profile, saves
+    * profile list -> prints all profiles 
+    * profile remove --name NAME -> deletes a profile
+* InspectCommand:
+  * inspect profiles -> shows a detailed list of all profiles
+  * inspect profile --name NAME -> shows details for a single profile
+* HeaderFlag in headers.go:
+  * Implements flag.Value so you can pass --header "Key: Value" multiple times.
+* internal/config
+  * Manages a Config struct that contains a map[string]Profile.
+  * Profile includes:
+    * Name, BaseURL, Headers
+    * AuthType, User, Pass, Token
+  * Knows where to store file:
+    * Uses os.UserConfigDir() (fallback to ~/.go-rest-api-cli) and writes config.json.
+  * Load() / Save() handle reading & writing JSON configuration.
+  internal/httpclient
+  * Config struct holds all request details.
+  * Factory.Build(cfg):
+    * Builds *http.Request from method, URL, headers, body.
+    * Creates *http.Client with:
+      * timeout
+      * optional SkipTLSVerify
+    * Applies the selected auth strategy.
+  internal/auth
+    * Strategy interface with Apply(req *http.Request).
+    * NoAuth, Basic, Bearer structs implement it.
+    * Used by CallCommand to apply auth in a pluggable way (Strategy pattern).
+  * internal/payload
+    * LoadJSONFile(path) → map[string]interface{}.
+    * ParseJSONInline(string) → map[string]interface{}.
+    * Merge(fileMap, inlineMap) → map[string]interface{} where inline overrides file keys.
+    * Used by CallCommand to combine --json-file and --data.
+
+
+Getting started:
+
+Requirements: 
+```Go 1.20+ (or adjust the go.mod version to your Go version)```
+
+Example - go.mod: 
 ```
 module go-rest-api-cli
 go 1.22
@@ -103,54 +191,75 @@ Usage
 
 General syntax:
 ```go-rest-api-cli <command> [flags]```
+
+Commands overview:
 ```
-Main commands:
-call – execute a REST API call
-help – show help and examples
-call command flags
+call – perform HTTP request
+profile – manage profiles
+inspect – show saved profiles
+help – show help
+```
+
+Call command:
+```
+Flags (main ones)
 
 --method
-HTTP method, default: GET
-(e.g. GET, POST, PUT, DELETE, PATCH …)
+HTTP method (default: GET).
 
 --url
-Request URL (required).
+Request URL:
+
+absolute: https://api.example.com/v1/users
+
+or relative: /v1/users when using --profile.
+
+--profile
+Profile name to use (base URL, headers, auth).
 
 --data
 Inline JSON string.
-Example: '{"name":"test"}' (see Windows notes below).
 
 --json-file
-Path to a JSON file. The payload from the file is merged with --data.
-Inline JSON overrides duplicate keys from the file.
+JSON file; merged with --data (inline overrides file).
 
 --header
-Extra HTTP headers, can be used multiple times.
-Format: "Key: Value"
-Example: --header "X-Env: dev" --header "X-Client: cli"
+Extra header Key: Value (can be repeated).
 
 --timeout
-Timeout in seconds (default: 30).
+Timeout (seconds), default 30.
 
 --insecure
-Skip TLS verification (InsecureSkipVerify=true).
-Not recommended for production, but sometimes useful in labs.
+Skip TLS verification (use only in dev/lab).
 
---auth
-Auth type: none (default), basic, bearer.
+--auth / --user / --pass / --token
+CLI-level auth. If --profile is used, profile auth is default and CLI flags override it.
 
---user / --pass
-Username/password for --auth basic.
+--pretty
+Pretty-print JSON response.
 
---token
-Bearer token for --auth bearer.
+--raw
+Print only the body.
+
+--json-only
+Print only JSON body (no status/headers).
+
+--out
+Save response body (after any pretty-print) to file.
+
+--retries / --retry-delay
+Number of retries on network/5xx errors and delay (seconds).
 ```
 
+
+
 Examples
+
 1. Simple GET (agify API)
+```
 Predict age from name via https://api.agify.io/?name=meelad.
 Linux / macOS / Windows PowerShell
-```./go-rest-api-cli call \
+./go-rest-api-cli call \
   --method GET \
   --url "https://api.agify.io/?name=meelad"
 ```
@@ -158,10 +267,47 @@ Linux / macOS / Windows PowerShell
 Windows cmd.exe
 ```go-rest-api-cli.exe call --method GET --url "https://api.agify.io/?name=meelad"```
 
-2. POST with JSON file (restful-api.dev)
-Target API: https://api.restful-api.dev/objects
-Create payload.json:
+2. Create a profile for restful-api.dev
+```aiignore
+go-rest-api-cli.exe profile add ^
+  --name restful ^
+  --base-url https://api.restful-api.dev ^
+  --auth none ^
+  --header "X-Env: dev"
+
 ```
+
+Check profiles:
+```aiignore
+go-rest-api-cli.exe profile list
+go-rest-api-cli.exe inspect profiles
+```
+
+Inspect one:
+```aiignore
+go-rest-api-cli.exe inspect profile --name restful
+```
+
+3. GET with profile + pretty JSON
+```aiignore
+go-rest-api-cli.exe call ^
+  --profile restful ^
+  --method GET ^
+  --url "/objects/1" ^
+  --pretty
+
+```
+
+Because --url is relative and --profile has base-url = https://api.restful-api.dev, the final URL becomes:
+```aiignore
+https://api.restful-api.dev/objects/1
+
+```
+
+4. POST with JSON file + inline override
+
+payload.json:
+```aiignore
 {
   "name": "Base Object",
   "data": {
@@ -169,62 +315,61 @@ Create payload.json:
     "version": 1
   }
 }
+
 ```
 
-Call:
 PowerShell / Linux / macOS
-```
+```aiignore
 ./go-rest-api-cli call \
+  --profile restful \
   --method POST \
-  --url "https://api.restful-api.dev/objects" \
-  --json-file "payload.json"
-```
-
-Windows cmd.exe
-```go-rest-api-cli.exe call --method POST --url "https://api.restful-api.dev/objects" --json-file "payload.json"```
-
-
-3. POST with JSON file + inline override
-
-Same payload.json as above:
-```{
-  "name": "Base Object",
-  "data": {
-    "env": "prod",
-    "version": 1
-  }
-}
-```
-
-PowerShell / Linux / macOS
-```./go-rest-api-cli call \
-  --method POST \
-  --url "https://api.restful-api.dev/objects" \
+  --url "/objects" \
   --json-file "payload.json" \
-  --data '{"name":"Overridden Name","data":{"extra":"from-inline"}}'
+  --data '{"name":"Overridden Name","data":{"extra":"from-inline"}}' \
+  --pretty \
+  --out "response.json"
+
+```
+
+Windows cmd.exe (note escaping):
+```aiignore
+go-rest-api-cli.exe call ^
+  --profile restful ^
+  --method POST ^
+  --url "/objects" ^
+  --json-file "payload.json" ^
+  --data "{\"name\":\"Overridden Name\",\"data\":{\"extra\":\"from-inline\"}}" ^
+  --pretty ^
+  --out "response.json"
+
 ```
 
 File payload:
-```{
+```aiignore
+{
   "name": "Base Object",
   "data": {
     "env": "prod",
     "version": 1
   }
 }
+
 ```
 
 Inline payload:
-```{
+```aiignore
+{
   "name": "Overridden Name",
   "data": {
     "extra": "from-inline"
   }
 }
+
 ```
 
-Merged body actually sent:
-```{
+Final merged body (sent to server):
+```aiignore
+{
   "name": "Overridden Name",
   "data": {
     "env": "prod",
@@ -232,42 +377,115 @@ Merged body actually sent:
     "extra": "from-inline"
   }
 }
-```
-
-Windows cmd.exe (note the escaping)
-```
-go-rest-api-cli.exe call --method POST --url "https://api.restful-api.dev/objects" --json-file "payload.json" --data "{\"name\":\"Overridden Name\",\"data\":{\"extra\":\"from-inline\"}}"
 
 ```
 
-4. Adding headers
-```
-./go-rest-api-cli call \
-  --method GET \
-  --url "https://httpbin.org/headers" \
-  --header "X-Env: dev" \
-  --header "X-Client: go-rest-api-cli"
-```
+5. Bearer auth with profile override
+Create a profile with default bearer token:
+```aiignore
+go-rest-api-cli.exe profile add ^
+  --name secureapi ^
+  --base-url https://api.example.com ^
+  --auth bearer ^
+  --token "DEFAULT_TOKEN"
 
-5. Basic auth example
-```./go-rest-api-cli call \
-  --method GET \
-  --url "https://httpbin.org/basic-auth/user/pass" \
-  --auth basic \
-  --user user \
-  --pass pass
 ```
+Call with profile, but override token:
+```aiignore
+go-rest-api-cli.exe call ^
+  --profile secureapi ^
+  --method GET ^
+  --url "/v1/me" ^
+  --auth bearer ^
+  --token "OVERRIDE_TOKEN" ^
+  --json-only ^
+  --pretty
 
-6. Bearer token auth example
-```./go-rest-api-cli call \
-  --method GET \
-  --url "https://httpbin.org/bearer" \
-  --auth bearer \
-  --token "YOUR_TOKEN_HERE"
 ```
 
+Profile provides base-url and default auth.
+CLI --auth and --token override profile auth.
+
+6. Retry logic
+```aiignore
+go-rest-api-cli.exe call ^
+  --method GET ^
+  --url "https://flaky.api.example.com/data" ^
+  --retries 3 ^
+  --retry-delay 2 ^
+  --pretty
+
+```
+
+Behavior:
+
+Up to 3 + 1 = 4 attempts total:
+First try
++3 retries on network error or HTTP 5xx
+Wait 2 seconds between retries.
 
 
+### Windows quoting notes (very important)
+Most JSON errors on Windows come from quoting.
+
+```
+.\go-rest-api-cli.exe call `
+  --method POST `
+--url "https://api.restful-api.dev/objects" `
+--data '{"name":"Test Object","data":{"env":"dev","owner":"ido"}}'
+```
+
+* Outer quotes: '...'
+* Inner JSON quotes: "..."
+* No escaping needed.
+
+cmd.exe
+In cmd.exe, single quotes are not special, so use double quotes and escape inner quotes:
+
+```aiignore
+go-rest-api-cli.exe call --method POST --url "https://api.restful-api.dev/objects" --data "{\"name\":\"Test Object\",\"data\":{\"env\":\"dev\",\"owner\":\"ido\"}}"
+
+```
+
+If you see:
+```aiignore
+invalid character '\'' looking for beginning of value
+
+```
+
+it means the JSON string started with a literal '.
+Use the double-quote + escaping form or move JSON to a file and use --json-file.
+
+
+### Design patterns used (OOP)
+Command pattern
+* Command interface and Registry keep commands pluggable.
+* Implementations: CallCommand, ProfileCommand, InspectCommand, HelpCommand.
+
+Factory pattern
+* httpclient.Factory builds HTTP requests/clients from a Config.
+* Command code doesn’t deal with low-level HTTP details.
+
+Strategy pattern (Auth)
+* auth.Strategy with implementations:
+    * NoAuth
+    * Basic
+    * Bearer
+* CallCommand just picks a strategy and passes it to the factory.
+
+Config module
+* internal/config encapsulates:
+    * where the config file lives
+    * how to load/save
+    * the Profile structure
+* Commands just call Load() and Save().
+
+Separation of concerns
+* CLI parsing & orchestration in command package
+* HTTP details in httpclient
+* Auth in auth
+* JSON payload operations in payload
+* Persistent profiles in config
 
 
 Extra Environment variables and build option
@@ -345,3 +563,30 @@ This table shows how the equivalent POST request might look using other common t
 | **cURL** | `curl -X POST -H "Content-Type: application/json" -d @payload.json "https://api.restful-api.dev/objects"` |
 | **restcli (Example GET)** | `restcli call --method GET --url "https://api.agify.io/?name=meelad"` |
 
+Quick sanity check new features (profile, inspect and etc...):
+Build (Windows exe):
+```GOOS=windows GOARCH=amd64 go build -o go-rest-api-cli.exe .```
+
+Examples:
+```
+:: Create profile
+go-rest-api-cli.exe profile add --name myapi --base-url https://api.restful-api.dev --auth none --header "X-Env: dev"
+
+:: Inspect profiles
+go-rest-api-cli.exe inspect profiles
+
+:: Call with profile + pretty JSON
+go-rest-api-cli.exe call --profile myapi --method GET --url "/objects/1" --pretty
+
+:: POST with payload.json, retry 2 times, save to file
+go-rest-api-cli.exe call ^
+  --profile myapi ^
+  --method POST ^
+  --url "/objects" ^
+  --json-file payload.json ^
+  --retries 2 ^
+  --retry-delay 2 ^
+  --pretty ^
+  --out "response.json"
+
+```
