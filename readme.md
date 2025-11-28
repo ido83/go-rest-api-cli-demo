@@ -16,7 +16,7 @@ go build -o go-rest-api-cli.exe
 # Optional: Clear the environment variables (good practice)
 $env:GOOS=''
 $env:GOARCH=''
-
+```
 
 #### C. Windows Batch (`.bat`)
 
@@ -33,7 +33,7 @@ go build -o go-rest-api-cli.exe
 :: Optional: Clear the environment variables (good practice)
 set GOOS=
 set GOARCH=
-
+```
 
 ## 🌐 Usage Examples
 
@@ -45,7 +45,7 @@ This example performs a simple GET request to the Agify API.
 
 ```bat
 go-rest-api-cli.exe call --method GET --url "[https://api.agify.io/?name=meelad](https://api.agify.io/?name=meelad)"
-
+```
 
 ### 2. HTTP POST Request with JSON Payload
 
@@ -54,13 +54,13 @@ To send a POST request with a body, use the `--json-file` flag pointing to a loc
 **Windows Batch Example:**
 ```bat
 go-rest-api-cli.exe call --method POST --url "[https://api.restful-api.dev/objects](https://api.restful-api.dev/objects)" --json-file "payload.json"
-
+```
 
 **PowerShell Example:**
 Note the use of `.\` to execute the file in the current directory in PowerShell.
 ```ps1
 .\go-rest-api-cli.exe call --method POST --url "[https://api.restful-api.dev/objects](https://api.restful-api.dev/objects)" --json-file "payload.json"
-
+```
 
 ### 3. Comparison with Other Tools
 
