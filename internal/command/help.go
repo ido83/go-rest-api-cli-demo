@@ -25,8 +25,10 @@ func (h *HelpCommand) Run(args []string) error {
 		fmt.Printf("  %-8s %s\n", c.Name(), c.Description())
 	}
 	fmt.Println()
-	fmt.Println("Example:")
+	fmt.Println("Examples:")
 	fmt.Printf("  %s call --method GET --url \"https://api.agify.io/?name=meelad\"\n", h.appName)
+	fmt.Printf("  %s profile add --name myapi --base-url https://api.example.com --auth bearer --token TOKEN\n", h.appName)
+	fmt.Printf("  %s call --profile myapi --method GET --url \"/v1/users\" --pretty\n", h.appName)
 
 	return nil
 }

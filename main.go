@@ -2,10 +2,9 @@ package main
 
 import (
 	"fmt"
-	"os"
-
 	"go-rest-api-cli-demo/internal/command"
 	"go-rest-api-cli-demo/internal/httpclient"
+	"os"
 )
 
 func main() {
@@ -13,6 +12,8 @@ func main() {
 
 	factory := httpclient.Factory{}
 	reg.Register(command.NewCallCommand(factory))
+	reg.Register(command.NewProfileCommand())
+	reg.Register(command.NewInspectCommand())
 	reg.Register(command.NewHelpCommand(reg, "go-rest-api-cli-demo"))
 
 	if len(os.Args) < 2 {

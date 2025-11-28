@@ -1,0 +1,10 @@
+{
+  "id": "ff8081819782e69e019acaea706f3195",
+  "name": "Test Object",
+  "createdAt": "2025-11-28T14:42:33.199+00:00",
+  "data": {
+    "body": "ido",
+    "title": "dev",
+    "userId": 1
+  }
+}

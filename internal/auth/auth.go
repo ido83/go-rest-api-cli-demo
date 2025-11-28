@@ -2,7 +2,7 @@ package auth
 
 import "net/http"
 
-// Strategy is the auth "interface" (OOP-style).
+// Strategy is the auth interface.
 type Strategy interface {
 	Apply(req *http.Request)
 }
