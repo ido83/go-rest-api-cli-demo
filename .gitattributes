@@ -1,0 +1,3 @@
+# Set default line endings for source code to be LF
+*.go text eol=lf
+# You can also specify text=auto (let Git decide) or binary
