@@ -8,6 +8,7 @@
 *.so
 *.dylib
 *go-rest-api-cli*
+build/
 
 # Test binary, built with `go test -c`
 *.test
