@@ -590,3 +590,82 @@ go-rest-api-cli.exe call ^
   --out "response.json"
 
 ```
+
+
+# Example hash new feature:
+# MD5
+
+```
+./go-rest-api-cli call \
+  --method POST \
+  --url "https://api.restful-api.dev/objects" \
+  --json-file "payload.json" \
+  --hash-file "./my-binary.bin" \
+  --hash-algo "md5" \
+  --hash-field "md5_sum"
+  ```
+
+  # SHA-256
+  ```
+ .\go-rest-api-cli.exe \
+  --method POST \
+  --url "https://api.restful-api.dev/objects" \
+  --json-file "payload.json" \
+  --hash-file "./my_bin.exe" ^
+  --hash-algo "sha-256" \
+  --hash-field "checksum" \
+  --pretty
+  ```
+
+ ```
+go-rest-api-cli.exe call ^
+  --method POST ^
+  --url "https://api.restful-api.dev/objects"  ^
+  --json-file "payload.json" ^
+  --hash-file "./my_bin.exe" ^
+  --hash-algo "md5" ^
+  --hash-field "checksum" ^
+  --pretty
+  ```
+
+# Add "0x" prefix
+```
+./go-rest-api-cli call \
+  --method POST \
+  --url "https://api.restful-api.dev/objects" \
+  --json-file "payload.json" \
+  --hash-file "./my-binary.bin" \
+  --hash-algo "sha-256" \
+  --hash-field "checksum" \
+  --hash-prefix-0x \
+  --pretty
+```
+
+```
+go-rest-api-cli.exe call ^
+  --method POST ^
+  --url "https://api.restful-api.dev/objects" ^
+  --json-file "payload.json" ^
+  --hash-file "./my_bin.exe" ^
+  --hash-algo "sha-256" ^
+  --hash-field "checksum" ^
+  --hash-prefix-0x ^
+  --pretty
+```
+
+```
+go-rest-api-cli.exe call ^
+  --method POST ^
+  --url "https://api.restful-api.dev/objects" ^
+  --json-file "payload.json" ^
+  --hash-file "./my_bin.exe" ^
+  --hash-algo "sha-256" ^
+  --hash-field "checksum" ^
+  --pretty
+```
+
+go-rest-api-cli.exe call ^
+  --method POST ^
+  --url "https://api.restful-api.dev/objects" ^
+  --json-file "payload.json" ^
+  --pretty
