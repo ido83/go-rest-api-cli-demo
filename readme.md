@@ -664,8 +664,32 @@ go-rest-api-cli.exe call ^
   --pretty
 ```
 
+```
 go-rest-api-cli.exe call ^
   --method POST ^
   --url "https://api.restful-api.dev/objects" ^
   --json-file "payload.json" ^
   --pretty
+```
+
+# Run Tests
+# How to run all tests
+
+```
+//From the repo root:
+go test ./...
+```
+
+```
+//or only the test folder:
+go test ./test
+
+```
+
+Best practice: tests live next to the Go files they test (*_test.go in the same folder).
+Use /test for bigger integration/e2e tests, not all unit tests.
+Use:
+go test ./... – everything
+go test -v ./... – show all test names & results
+go test -run Name ./pkg – run only some tests
+go test -cover ./... – see coverage
