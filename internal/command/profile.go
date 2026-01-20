@@ -4,7 +4,7 @@ import (
 	"flag"
 	"fmt"
 
-	cfgstore "go-rest-api-cli-demo/internal/config"
+	cfgstore "go-rest-api-cli/internal/config"
 )
 
 // ProfileCommand manages profiles (add/list/remove).

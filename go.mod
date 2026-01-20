@@ -1,3 +1,3 @@
-module go-rest-api-cli-demo
+module go-rest-api-cli
 
 go 1.25

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	cfgstore "go-rest-api-cli-demo/internal/config"
+	cfgstore "go-rest-api-cli/internal/config"
 )
 
 // InspectCommand inspects stored profiles.

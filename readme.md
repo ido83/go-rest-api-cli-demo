@@ -1,5 +1,28 @@
-
 # go-rest-api-cli
+
+```text
+#                                 _                _       _ _ 
+#                                | |              (_)     | (_)
+#       __ _  ___   _ __ ___  ___| |_   __ _ _ __  _   ___| |_ 
+#      / _` |/ _ \ | '__/ _ \/ __| __| / _` | '_ \| | / __| | |
+#     | (_| | (_) || | |  __/\__ \ |_ | (_| | |_) | || (__| | |
+#      \__, |\___(_)_|  \___||___/\__(_)__,_| .__/|_(_)___|_|_|
+#       __/ |                               | |                
+#      |___/                                |_|                                            
+                ..-*@@@@@@@+:.        .:+@@@@@@@*-..                                
+                .*@@@@@@@@@@@@@+.    .+@@@@@@@@@@@@@*.                               
+              .%@@@@*:...:+@@@@@-..-@@@@@+:...:+@@@@%.                              
+              #@@@@.        =@@@@@@@@@@=        .@@@@#                              
+              .@@@@=          .*@@@@@@*.          -@@@@:                             
+              :@@@@-           .*@@@@*.           :@@@@-                             
+              .@@@@+          .%@@@@@@%:          =@@@@.                             
+              *@@@@-.     ..#@@@@**@@@@#..     .:@@@@*                              
+              .*@@@@%=---=#@@@@#:..:#@@@@#=---=#@@@@#.                              
+                .-%@@@@@@@@@@@%-.    .:#@@@@@@@@@@@@=.                               
+                  ..-#@@@@@*:..        ..:*@@@@@#-..                                 
+                                                                                                    
+                                                                                                    
+```
 
 A small, cross-platform Go CLI for making REST API calls.
 
@@ -8,10 +31,12 @@ A small, cross-platform Go CLI for making REST API calls.
 - ✅ JSON payloads from file and inline, with **merge & override**
 - ✅ **Profiles** for base URL, default headers, and auth
 - ✅ **Hashing** binary files (MD5 / SHA-1 / SHA-256) and injecting into JSON
+- ✅ Optional hash formatting: `0x` prefix and uppercase hex
 - ✅ Flexible output options: pretty JSON, raw, JSON-only, write to file
 - ✅ Basic **retry logic**
 - ✅ Clean architecture with **Command**, **Factory**, **Strategy** patterns
 - ✅ Unit tests for core modules
+- ✅ Built-in **version** command and ASCII banner
 
 <hr style="border: 0; height: 1px; background-image: linear-gradient(to right, rgba(0,0,0,0), rgba(0,122,204,0.75), rgba(0,0,0,0));">
 
@@ -30,13 +55,16 @@ A small, cross-platform Go CLI for making REST API calls.
     │   ├── headers.go
     │   ├── help.go
     │   ├── inspect.go
-    │   └── profile.go
+    │   ├── profile.go
+    │   └── version.go
     ├── config
     │   └── config.go
     ├── httpclient
     │   └── factory.go
-    └── payload
-        └── json.go
+    ├── payload
+    │   └── json.go
+    └── version
+        └── version.go
 ```
 
 (Plus `*_test.go` files next to some modules for unit tests.)
@@ -48,13 +76,20 @@ A small, cross-platform Go CLI for making REST API calls.
 ### `main.go`
 
 - Entry point for the CLI.
+- Defines the ASCII art logo and banner.
+- Prints banner with:
+  - Tool name: `go-rest-api-cli`
+  - Version, commit, and build date (from `internal/version`).
 - Creates a `command.Registry`, registers:
   - `call`
   - `profile`
   - `inspect`
   - `help`
-- Dispatches based on `os.Args[1]` (the subcommand name).
-- Handles global errors and exit codes.
+  - `version`
+- Behavior:
+  - No arguments → print banner + global help (via `help` command) and exit.
+  - Unknown command → print banner + error + global help.
+  - On command error → print error, banner, and command-specific help (fallback to global).
 
 <hr style="border: 0; height: 1px; background-image: linear-gradient(to right, rgba(0,0,0,0), rgba(0,122,204,0.75), rgba(0,0,0,0));">
 
@@ -91,11 +126,12 @@ Responsibilities:
   - HTTP method, URL
   - Profiles (`--profile`)
   - JSON payload (`--json-file`, `--data`)
-  - Hashing (`--hash-file`, `--hash-algo`, `--hash-field`, `--hash-prefix-0x`)
+  - Hashing (`--hash-file`, `--hash-algo`, `--hash-field`, `--hash-prefix-0x`, `--hash-upper`)
   - Headers (`--header`)
   - Auth (`--auth`, `--user`, `--pass`, `--token`)
   - Output modes (`--pretty`, `--raw`, `--json-only`, `--out`)
   - Retry (`--retries`, `--retry-delay`)
+  - Network behavior (`--timeout`, `--insecure`)
 - Load profile from config (if used).
 - Merge:
   - Profile base URL + relative `--url`
@@ -103,9 +139,11 @@ Responsibilities:
   - Profile auth + CLI auth overrides
 - Load & merge JSON from file + inline.
 - Compute file hash (optional) and inject into JSON.
+  - Optionally rewrite the JSON file on disk with the new hash field.
+  - Print the computed hash to the console.
 - Build request/client via `httpclient.Factory`.
 - Perform request with retry logic.
-- Format and print/save response.
+- Format and print/save response according to selected output strategy.
 
 #### `profile.go`
 
@@ -135,10 +173,22 @@ Commands:
 
 #### `help.go`
 
+- Implements the `help` command.
 - Prints:
   - Tool description
   - Available commands
   - Quick examples
+- Supports:
+  - `go-rest-api-cli help` – global help
+  - `go-rest-api-cli help call` – command-specific help, etc.
+
+#### `version.go`
+
+- Implements the `version` command.
+- Commands:
+  - `version` – prints full version string with commit and build date.
+  - `version --short` – prints only the semantic version.
+- Uses `internal/version` for version metadata.
 
 <hr style="border: 0; height: 1px; background-image: linear-gradient(to right, rgba(0,0,0,0), rgba(0,122,204,0.75), rgba(0,0,0,0));">
 
@@ -208,12 +258,29 @@ Helpers for JSON payload and hashing.
 - `LoadJSONFile(path)` – loads JSON file into `map[string]interface{}`.
 - `ParseJSONInline(string)` – parses inline JSON into `map[string]interface{}`.
 - `Merge(fileMap, inlineMap)` – merges two maps, where `inlineMap` overrides keys from `fileMap`.
-- `NormalizeHashAlgo(algo)` – normalizes names like `"SHA-256"` → `"sha256"`.
+- `NormalizeHashAlgo(algo)` – normalizes names like `"SHA-256"` → `"sha-256"`.
 - `ComputeFileHash(path, algo)`:
   - Supports `md5`, `sha-1`, `sha-256`.
-  - Returns hex string hash.
+  - Returns hex string hash (lowercase – can be uppercased by the `call` command).
+- The `call` command uses this module to build the final request body and compute hashes.
 
-`call` uses this module to build the final request body and compute hashes.
+<hr style="border: 0; height: 1px; background-image: linear-gradient(to right, rgba(0,0,0,0), rgba(0,122,204,0.75), rgba(0,0,0,0));">
+
+### `internal/version`
+
+#### `version.go`
+
+- Stores build-time metadata:
+  - `Version` – semantic version (default `dev`).
+  - `Commit` – git commit hash (default `none`).
+  - `Date` – build date (default `unknown`).
+- `Full()` – returns a formatted string:
+
+  ```text
+  v1.0.0 (commit a1b2c3d4, built 2026-01-20T18:45:00Z)
+  ```
+
+- Values are intended to be overridden using `go build -ldflags`.
 
 <hr style="border: 0; height: 1px; background-image: linear-gradient(to right, rgba(0,0,0,0), rgba(0,122,204,0.75), rgba(0,0,0,0));">
 
@@ -242,6 +309,55 @@ Then copy the binary to your target machine.
 > - Run `go-rest-api-cli.exe` (or `.\go-rest-api-cli.exe`) in Windows `cmd` / PowerShell.  
 > - Don’t run a Windows `.exe` inside WSL bash – you’ll get an “Exec format error”.
 
+### Build with embedded version info
+
+Embed version, commit, and build date (for the `version` command and banner):
+
+#### Linux binary with version metadata
+
+```bash
+go build \
+  -ldflags "\
+    -X go-rest-api-cli/internal/version.Version=v1.0.0 \
+    -X go-rest-api-cli/internal/version.Commit=$(git rev-parse HEAD) \
+    -X go-rest-api-cli/internal/version.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  -o go-rest-api-cli .
+```
+
+#### Windows binary with version metadata (built from Linux/macOS)
+
+```bash
+GOOS=windows GOARCH=amd64 go build \
+  -ldflags "\
+    -X go-rest-api-cli/internal/version.Version=v1.0.0 \
+    -X go-rest-api-cli/internal/version.Commit=$(git rev-parse HEAD) \
+    -X go-rest-api-cli/internal/version.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  -o go-rest-api-cli.exe .
+```
+
+### Verify installation
+
+Linux/macOS:
+
+```bash
+./go-rest-api-cli version
+./go-rest-api-cli
+```
+
+Windows (PowerShell):
+
+```powershell
+.\go-rest-api-cli.exe version
+.\go-rest-api-cli.exe
+```
+
+- Running without arguments prints:
+  - ASCII banner
+  - Application name
+  - Version, commit, build date
+  - Global help
+- `version` prints detailed version info, `version --short` prints just the version.
+
 <hr style="border: 0; height: 1px; background-image: linear-gradient(to right, rgba(0,0,0,0), rgba(0,122,204,0.75), rgba(0,0,0,0));">
 
 ## Commands overview
@@ -257,7 +373,10 @@ Available commands:
 - `call` – execute a REST API call
 - `profile` – manage saved profiles
 - `inspect` – inspect stored profiles
+- `version` – show version information
 - `help` – show help and examples
+
+Running the binary with **no command** or with an **unknown command** prints the ASCII banner and help.
 
 <hr style="border: 0; height: 1px; background-image: linear-gradient(to right, rgba(0,0,0,0), rgba(0,122,204,0.75), rgba(0,0,0,0));">
 
@@ -269,17 +388,17 @@ Available commands:
 - `--url` – request URL (**required**)
   - absolute: `https://api.example.com/v1/users`
   - or relative: `/v1/users` when using `--profile`
-- `--profile` – profile name (base URL, headers, auth)
+- `--profile` – profile name (base URL, header defaults, auth defaults)
 - `--header "Key: Value"` – extra headers (repeatable)
 - `--json-file` – JSON file path for payload (merged base)
 - `--data` – inline JSON to merge/override file payload
 - `--auth` – `none|basic|bearer`
 - `--user`, `--pass`, `--token` – auth parameters
-- `--timeout` – in seconds (default `30`)
+- `--timeout` – timeout in seconds (default `30`)
 - `--insecure` – skip TLS verification (lab only)
 - `--pretty` – pretty-print JSON responses
 - `--raw` – print only body
-- `--json-only` – print only JSON body
+- `--json-only` – print only JSON body (when Content-Type is JSON)
 - `--out` – write response body to file
 - `--retries` – number of retries (network/5xx)
 - `--retry-delay` – delay between retries (seconds)
@@ -287,6 +406,7 @@ Available commands:
 - `--hash-algo` – `md5|sha-1|sha-256` (default `sha-256`)
 - `--hash-field` – JSON field name for hash (default `file_hash`)
 - `--hash-prefix-0x` – if set, prefix hash with `0x`
+- `--hash-upper` – if set, render hex in uppercase (`A-F`)
 
 <hr style="border: 0; height: 1px; background-image: linear-gradient(to right, rgba(0,0,0,0), rgba(0,122,204,0.75), rgba(0,0,0,0));">
 
@@ -585,7 +705,7 @@ We will:
 
 1. Compute a hash for a file.
 2. Inject that hash into the JSON payload under a custom field.
-3. Update the JSON file on disk.
+3. Optionally update the JSON file on disk.
 4. Send the resulting payload.
 
 Assume:
@@ -645,7 +765,7 @@ go-rest-api-cli.exe call ^
 
 What happens:
 
-- Computes `sha-256(build/artifact.bin)` → e.g. `"b94d27b9..."`
+- Computes `sha-256(build/artifact.bin)` → e.g. `"b94d27b9..."`.
 - Prints:
 
   ```text
@@ -665,9 +785,7 @@ What happens:
 
 - This updated JSON is sent as the request body.
 
-<hr style="border: 0; height: 1px; background-image: linear-gradient(to right, rgba(0,0,0,0), rgba(0,122,204,0.75), rgba(0,0,0,0));">
-
-#### 5.2 MD5 with `0x` prefix into `md5_sum`
+#### 5.2 MD5 with `0x` prefix and uppercase into `md5_sum`
 
 ##### Bash
 
@@ -680,6 +798,7 @@ What happens:
   --hash-algo "md5" \
   --hash-field "md5_sum" \
   --hash-prefix-0x \
+  --hash-upper \
   --pretty
 ```
 
@@ -694,6 +813,7 @@ What happens:
   --hash-algo "md5" `
   --hash-field "md5_sum" `
   --hash-prefix-0x `
+  --hash-upper `
   --pretty
 ```
 
@@ -708,12 +828,13 @@ go-rest-api-cli.exe call ^
   --hash-algo "md5" ^
   --hash-field "md5_sum" ^
   --hash-prefix-0x ^
+  --hash-upper ^
   --pretty
 ```
 
 Now:
 
-- Hash looks like `"0x5eb63bbb..."`.
+- Hash looks like `"0x5EB63BBBE01EEED093CB22BB8F5ACDC3"`.
 - JSON is updated:
 
   ```json
@@ -721,7 +842,7 @@ Now:
     "name": "artifact upload",
     "build": 42,
     "checksum": "b94d27b9...",
-    "md5_sum": "0x5eb63bbb..."
+    "md5_sum": "0x5EB63BBBE01EEED093CB22BB8F5ACDC3"
   }
   ```
 
@@ -776,7 +897,7 @@ go-rest-api-cli.exe call --method GET --url "https://api.agify.io/?name=meelad" 
 ```bash
 ./go-rest-api-cli call \
   --method GET \
-  --url "https://api/agify.io/?name=meelad" \
+  --url "https://api.agify.io/?name=meelad" \
   --raw \
   --out "agify_response.json"
 ```
@@ -867,7 +988,7 @@ go test ./... -cover
 
 - **Command pattern**
   - `internal/command.Command` interface + `Registry`.
-  - Subcommands: `CallCommand`, `ProfileCommand`, `InspectCommand`, `HelpCommand`.
+  - Subcommands: `CallCommand`, `ProfileCommand`, `InspectCommand`, `HelpCommand`, `VersionCommand`.
 
 - **Strategy pattern (Auth)**
   - `internal/auth.Strategy` interface.
@@ -879,6 +1000,9 @@ go test ./... -cover
 - **Configuration module**
   - `internal/config` isolates config file location & schema (profiles).
 
+- **Versioning module**
+  - `internal/version` exposes build-time metadata used by the banner and `version` command.
+
 - **Separation of concerns**
   - CLI parsing & orchestration → `internal/command`
   - HTTP behavior → `internal/httpclient`
@@ -886,5 +1010,20 @@ go test ./... -cover
   - JSON & hashing → `internal/payload`
   - Persistence of profiles → `internal/config`
 
+## License
 
+go-rest-api-cli is released under the terms of the **MIT License**, a permissive open-source license that allows extensive reuse with minimal restrictions.
 
+You are free to:
+
+- Use the software for personal, academic, or commercial purposes.
+- Modify the source code to fit your own requirements.
+- Distribute original or modified versions.
+- Include go-rest-api-cli as part of your own tools or products.
+
+Conditions:
+
+- You must retain the original copyright notice.
+- You must include a copy of the MIT License in any substantial portions of the software you distribute.
+
+For the full legal text, see the `LICENSE` file in this repository.
