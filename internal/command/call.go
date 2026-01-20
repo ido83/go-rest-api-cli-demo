@@ -136,8 +136,6 @@ func (c *CallCommand) Run(args []string) error {
 		}
 
 		// apply uppercase / prefix logic:
-		// - if both --hash-upper and --hash-prefix-0x:
-		//   result looks like: 0xABCDEF...
 		if *hashUpper {
 			hashValue = strings.ToUpper(hashValue)
 		}

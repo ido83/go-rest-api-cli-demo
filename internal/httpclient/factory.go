@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"go-rest-api-cli-demo/internal/auth"
+	"go-rest-api-cli/internal/auth"
 )
 
 // Config holds all data needed to build a request/client.

@@ -1,17 +1,11 @@
 package httpclient
 
-// factory_test.go - tests HTTP client factory (headers, auth, TLS).
-//
-// How to run from repo root:
-//   go test ./...
-// or just this package:
-//   go test ./internal/httpclient
-
 import (
-	"go-rest-api-cli-demo/internal/auth"
 	"net/http"
 	"testing"
 	"time"
+
+	"go-rest-api-cli/internal/auth"
 )
 
 func TestFactoryBuildWithHeadersAndAuth(t *testing.T) {
@@ -48,12 +42,10 @@ func TestFactoryBuildWithHeadersAndAuth(t *testing.T) {
 		t.Errorf("expected Authorization == 'Bearer TOKEN456', got %q", got)
 	}
 
-	// Check timeout
 	if client.Timeout != 5*time.Second {
 		t.Errorf("expected client timeout 5s, got %v", client.Timeout)
 	}
 
-	// Check SkipTLSVerify is true
 	tr, ok := client.Transport.(*http.Transport)
 	if !ok {
 		t.Fatalf("expected *http.Transport, got %T", client.Transport)
