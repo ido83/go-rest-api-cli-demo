@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"go-rest-api-cli-demo/internal/auth"
-	cfgstore "go-rest-api-cli-demo/internal/config"
-	"go-rest-api-cli-demo/internal/httpclient"
-	"go-rest-api-cli-demo/internal/payload"
+	"go-rest-api-cli/internal/auth"
+	cfgstore "go-rest-api-cli/internal/config"
+	"go-rest-api-cli/internal/httpclient"
+	"go-rest-api-cli/internal/payload"
 )
 
 // CallCommand = "call" subcommand.
@@ -43,18 +43,22 @@ func (c *CallCommand) Run(args []string) error {
 		hashAlgo     = fs.String("hash-algo", "sha-256", "Hash algorithm for --hash-file (md5|sha-1|sha-256)")
 		hashField    = fs.String("hash-field", "file_hash", "JSON field name to store file hash")
 		hashPrefix0x = fs.Bool("hash-prefix-0x", false, "If true, prefix computed hash with 0x")
-		timeoutSec   = fs.Int("timeout", 30, "Timeout in seconds")
-		insecure     = fs.Bool("insecure", false, "Skip TLS verification (NOT recommended for prod)")
-		authType     = fs.String("auth", "none", "Auth: none|basic|bearer")
-		user         = fs.String("user", "", "Username for basic auth")
-		pass         = fs.String("pass", "", "Password for basic auth")
-		token        = fs.String("token", "", "Bearer token")
-		pretty       = fs.Bool("pretty", false, "Pretty-print JSON responses")
-		raw          = fs.Bool("raw", false, "Print only response body (no status/headers)")
-		jsonOnly     = fs.Bool("json-only", false, "If response is JSON, print only JSON body")
-		outPath      = fs.String("out", "", "Write response body to file")
-		retries      = fs.Int("retries", 0, "Number of retries on failure (network/5xx)")
-		retryWait    = fs.Int("retry-delay", 1, "Delay between retries in seconds")
+		hashUpper    = fs.Bool("hash-upper", false, "If true, hex hash letters are uppercase (A-F)")
+
+		timeoutSec = fs.Int("timeout", 30, "Timeout in seconds")
+		insecure   = fs.Bool("insecure", false, "Skip TLS verification (NOT recommended for prod)")
+
+		authType = fs.String("auth", "none", "Auth: none|basic|bearer")
+		user     = fs.String("user", "", "Username for basic auth")
+		pass     = fs.String("pass", "", "Password for basic auth")
+		token    = fs.String("token", "", "Bearer token")
+
+		pretty    = fs.Bool("pretty", false, "Pretty-print JSON responses")
+		raw       = fs.Bool("raw", false, "Print only response body (no status/headers)")
+		jsonOnly  = fs.Bool("json-only", false, "If response is JSON, print only JSON body")
+		outPath   = fs.String("out", "", "Write response body to file")
+		retries   = fs.Int("retries", 0, "Number of retries on failure (network/5xx)")
+		retryWait = fs.Int("retry-delay", 1, "Delay between retries in seconds")
 	)
 
 	headers := HeaderFlag{} // initialized non-nil
@@ -131,6 +135,12 @@ func (c *CallCommand) Run(args []string) error {
 			return fmt.Errorf("--hash-field cannot be empty when --hash-file is used")
 		}
 
+		// apply uppercase / prefix logic:
+		// - if both --hash-upper and --hash-prefix-0x:
+		//   result looks like: 0xABCDEF...
+		if *hashUpper {
+			hashValue = strings.ToUpper(hashValue)
+		}
 		if *hashPrefix0x {
 			hashValue = "0x" + hashValue
 		}
