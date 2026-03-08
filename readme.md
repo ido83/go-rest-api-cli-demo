@@ -58,6 +58,7 @@ A small, cross-platform Go CLI for making REST API calls.
     │   ├── help.go
     │   ├── inspect.go
     │   ├── profile.go
+    │   ├── token.go
     │   └── version.go
     ├── config
     │   └── config.go
