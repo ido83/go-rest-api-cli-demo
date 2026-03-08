@@ -48,10 +48,15 @@ func (p *ProfileCommand) runAdd(args []string) error {
 
 	name := fs.String("name", "", "Profile name (required)")
 	baseURL := fs.String("base-url", "", "Base URL, e.g. https://api.example.com")
-	authType := fs.String("auth", "none", "Auth type: none|basic|bearer")
+	authType := fs.String("auth", "none", "Auth type: none|basic|bearer|oauth2")
 	user := fs.String("user", "", "Username for basic auth")
 	pass := fs.String("pass", "", "Password for basic auth")
 	token := fs.String("token", "", "Bearer token for auth")
+
+	oauth2TokenURL := fs.String("oauth2-token-url", "", "OAuth2 token endpoint URL")
+	oauth2ClientID := fs.String("oauth2-client-id", "", "OAuth2 client ID")
+	oauth2ClientSecret := fs.String("oauth2-client-secret", "", "OAuth2 client secret")
+	oauth2Scopes := fs.String("oauth2-scopes", "", "OAuth2 space-separated scopes")
 
 	headers := HeaderFlag{}
 	fs.Var(&headers, "header", "Default header 'Key: Value' (can be repeated)")
@@ -78,6 +83,11 @@ func (p *ProfileCommand) runAdd(args []string) error {
 		User:     *user,
 		Pass:     *pass,
 		Token:    *token,
+
+		OAuth2TokenURL:     *oauth2TokenURL,
+		OAuth2ClientID:     *oauth2ClientID,
+		OAuth2ClientSecret: *oauth2ClientSecret,
+		OAuth2Scopes:       *oauth2Scopes,
 	}
 
 	if cfg.Profiles == nil {

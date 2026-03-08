@@ -13,10 +13,16 @@ type Profile struct {
 	BaseURL string            `json:"base_url"`
 	Headers map[string]string `json:"headers,omitempty"`
 
-	AuthType string `json:"auth_type,omitempty"` // none|basic|bearer
+	AuthType string `json:"auth_type,omitempty"` // none|basic|bearer|oauth2
 	User     string `json:"user,omitempty"`
 	Pass     string `json:"pass,omitempty"`
 	Token    string `json:"token,omitempty"`
+
+	// OAuth2 client credentials fields
+	OAuth2TokenURL     string `json:"oauth2_token_url,omitempty"`
+	OAuth2ClientID     string `json:"oauth2_client_id,omitempty"`
+	OAuth2ClientSecret string `json:"oauth2_client_secret,omitempty"`
+	OAuth2Scopes       string `json:"oauth2_scopes,omitempty"` // space-separated
 }
 
 // Config is the root config file structure.

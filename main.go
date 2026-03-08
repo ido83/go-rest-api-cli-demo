@@ -50,6 +50,7 @@ func main() {
 	registry := command.NewRegistry()
 	registry.Register(command.NewCallCommand(factory))
 	registry.Register(command.NewProfileCommand())
+	registry.Register(command.NewTokenCommand())
 	registry.Register(command.NewInspectCommand())
 
 	// Create help command with app name and register it

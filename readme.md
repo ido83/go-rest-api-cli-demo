@@ -30,6 +30,8 @@ A small, cross-platform Go CLI for making REST API calls.
 - ✅ **No external dependencies** – only Go standard library → great for **air-gapped** environments
 - ✅ JSON payloads from file and inline, with **merge & override**
 - ✅ **Profiles** for base URL, default headers, and auth
+- ✅ **Auth strategies**: None, Basic, Bearer, **OAuth 2.0 Client Credentials**
+- ✅ Dedicated **`token` command** to fetch, print, or save an OAuth2 token independently
 - ✅ **Hashing** binary files (MD5 / SHA-1 / SHA-256) and injecting into JSON
 - ✅ Optional hash formatting: `0x` prefix and uppercase hex
 - ✅ Flexible output options: pretty JSON, raw, JSON-only, write to file
@@ -154,13 +156,31 @@ Commands:
 - `profile add` – create/update a profile with:
   - `--name NAME`
   - `--base-url URL`
-  - `--auth none|basic|bearer`
+  - `--auth none|basic|bearer|oauth2`
   - optional `--user`, `--pass`, `--token`
+  - `--oauth2-token-url`, `--oauth2-client-id`, `--oauth2-client-secret`, `--oauth2-scopes`
   - `--header "Key: Value"` (repeatable)
 - `profile list` – list all profiles (basic info).
 - `profile remove` – delete a profile by name.
 
 Uses `internal/config` for persistence.
+
+#### `token.go`
+
+Standalone command for fetching an OAuth2 access token without making an API call.
+
+Flags:
+
+- `--profile` – load OAuth2 settings from a saved profile
+- `--oauth2-token-url` – token endpoint URL
+- `--oauth2-client-id` – client ID
+- `--oauth2-client-secret` – client secret
+- `--oauth2-scopes` – space-separated scopes
+- `--json` – print the full token response as JSON (`access_token`, `token_type`, `expires_in`, `scope`) instead of just the raw token string
+- `--quiet` – suppress all console output (useful when only writing to file)
+- `--out FILE` – write the token (or JSON) to a file; file is written with mode `0600`
+
+CLI flags take precedence over profile defaults, so individual fields can be overridden at call time.
 
 #### `inspect.go`
 
@@ -199,7 +219,7 @@ Handles storage of **profiles** in a config file.
 #### `config.go`
 
 - Types:
-  - `Profile` – base URL, headers, auth type, user/pass/token.
+  - `Profile` – base URL, headers, auth type, user/pass/token, OAuth2 fields (`oauth2_token_url`, `oauth2_client_id`, `oauth2_client_secret`, `oauth2_scopes`).
   - `Config` – root struct with `Profiles map[string]Profile`.
 - Determines config file path:
   - Uses `os.UserConfigDir()` if possible.
@@ -224,6 +244,11 @@ Implements **auth strategies** (Strategy pattern).
   - `NoAuth` – no changes to request.
   - `Basic` – sets `Authorization: Basic ...` using `req.SetBasicAuth`.
   - `Bearer` – sets `Authorization: Bearer <token>`.
+  - `OAuth2ClientCredentials` – performs the **OAuth 2.0 Client Credentials** grant:
+    - `FetchTokenFull()` POSTs `grant_type=client_credentials` + `client_id` + `client_secret` (+ optional `scope`) to the token endpoint and returns a `*TokenResponse` (`access_token`, `token_type`, `expires_in`, `scope`).
+    - `FetchToken()` calls `FetchTokenFull()` and caches only the `access_token` for `Apply()`.
+    - `Apply()` sets `Authorization: Bearer <access_token>` on the request.
+    - Returns structured errors for missing config, HTTP failures, and server-side OAuth2 errors (`error` / `error_description`).
 
 Used by `call` command (and indirectly by `httpclient.Factory`).
 
@@ -371,6 +396,7 @@ go-rest-api-cli <command> [flags...]
 Available commands:
 
 - `call` – execute a REST API call
+- `token` – fetch an OAuth2 access token (print / save / suppress)
 - `profile` – manage saved profiles
 - `inspect` – inspect stored profiles
 - `version` – show version information
@@ -392,8 +418,12 @@ Running the binary with **no command** or with an **unknown command** prints the
 - `--header "Key: Value"` – extra headers (repeatable)
 - `--json-file` – JSON file path for payload (merged base)
 - `--data` – inline JSON to merge/override file payload
-- `--auth` – `none|basic|bearer`
-- `--user`, `--pass`, `--token` – auth parameters
+- `--auth` – `none|basic|bearer|oauth2`
+- `--user`, `--pass`, `--token` – auth parameters (basic / bearer)
+- `--oauth2-token-url` – OAuth2 token endpoint URL
+- `--oauth2-client-id` – OAuth2 client ID
+- `--oauth2-client-secret` – OAuth2 client secret
+- `--oauth2-scopes` – space-separated OAuth2 scopes (e.g. `"read write"`)
 - `--timeout` – timeout in seconds (default `30`)
 - `--insecure` – skip TLS verification (lab only)
 - `--pretty` – pretty-print JSON responses
@@ -951,6 +981,356 @@ Behavior:
 
 <hr style="border: 0; height: 1px; background-image: linear-gradient(to right, rgba(0,0,0,0), rgba(0,122,204,0.75), rgba(0,0,0,0));">
 
+### 8. OAuth 2.0 Client Credentials
+
+The `--auth oauth2` strategy fetches a Bearer token from a token endpoint before the API call.
+The token is obtained using the **Client Credentials** grant (machine-to-machine, no user interaction).
+
+#### 8.1 One-off call with inline OAuth2 flags
+
+##### Bash (Linux/macOS)
+
+```bash
+./go-rest-api-cli call \
+  --method GET \
+  --url "https://api.example.com/v1/resources" \
+  --auth oauth2 \
+  --oauth2-token-url "https://auth.example.com/oauth2/token" \
+  --oauth2-client-id "myapp-client-id" \
+  --oauth2-client-secret "myapp-client-secret" \
+  --oauth2-scopes "read write" \
+  --pretty
+```
+
+##### PowerShell
+
+```powershell
+.\go-rest-api-cli.exe call `
+  --method GET `
+  --url "https://api.example.com/v1/resources" `
+  --auth oauth2 `
+  --oauth2-token-url "https://auth.example.com/oauth2/token" `
+  --oauth2-client-id "myapp-client-id" `
+  --oauth2-client-secret "myapp-client-secret" `
+  --oauth2-scopes "read write" `
+  --pretty
+```
+
+##### cmd.exe
+
+```bat
+go-rest-api-cli.exe call ^
+  --method GET ^
+  --url "https://api.example.com/v1/resources" ^
+  --auth oauth2 ^
+  --oauth2-token-url "https://auth.example.com/oauth2/token" ^
+  --oauth2-client-id "myapp-client-id" ^
+  --oauth2-client-secret "myapp-client-secret" ^
+  --oauth2-scopes "read write" ^
+  --pretty
+```
+
+What happens:
+
+1. The tool POSTs to the token URL:
+   ```
+   POST https://auth.example.com/oauth2/token
+   Content-Type: application/x-www-form-urlencoded
+
+   grant_type=client_credentials&client_id=myapp-client-id&client_secret=myapp-client-secret&scope=read+write
+   ```
+2. Parses the `access_token` from the JSON response.
+3. Sets `Authorization: Bearer <access_token>` on the actual API request.
+
+<hr style="border: 0; height: 1px; background-image: linear-gradient(to right, rgba(0,0,0,0), rgba(0,122,204,0.75), rgba(0,0,0,0));">
+
+#### 8.2 Save OAuth2 credentials to a profile
+
+Store all OAuth2 settings in a profile so you only need `--profile` on every call.
+
+##### Bash
+
+```bash
+./go-rest-api-cli profile add \
+  --name myapi \
+  --base-url "https://api.example.com" \
+  --auth oauth2 \
+  --oauth2-token-url "https://auth.example.com/oauth2/token" \
+  --oauth2-client-id "myapp-client-id" \
+  --oauth2-client-secret "myapp-client-secret" \
+  --oauth2-scopes "read write"
+```
+
+##### PowerShell
+
+```powershell
+.\go-rest-api-cli.exe profile add `
+  --name myapi `
+  --base-url "https://api.example.com" `
+  --auth oauth2 `
+  --oauth2-token-url "https://auth.example.com/oauth2/token" `
+  --oauth2-client-id "myapp-client-id" `
+  --oauth2-client-secret "myapp-client-secret" `
+  --oauth2-scopes "read write"
+```
+
+##### cmd.exe
+
+```bat
+go-rest-api-cli.exe profile add ^
+  --name myapi ^
+  --base-url "https://api.example.com" ^
+  --auth oauth2 ^
+  --oauth2-token-url "https://auth.example.com/oauth2/token" ^
+  --oauth2-client-id "myapp-client-id" ^
+  --oauth2-client-secret "myapp-client-secret" ^
+  --oauth2-scopes "read write"
+```
+
+<hr style="border: 0; height: 1px; background-image: linear-gradient(to right, rgba(0,0,0,0), rgba(0,122,204,0.75), rgba(0,0,0,0));">
+
+#### 8.3 Use the OAuth2 profile for API calls
+
+Once the profile is saved, just pass `--profile`:
+
+##### Bash
+
+```bash
+./go-rest-api-cli call \
+  --profile myapi \
+  --method GET \
+  --url "/v1/resources" \
+  --pretty
+```
+
+##### PowerShell
+
+```powershell
+.\go-rest-api-cli.exe call `
+  --profile myapi `
+  --method GET `
+  --url "/v1/resources" `
+  --pretty
+```
+
+##### cmd.exe
+
+```bat
+go-rest-api-cli.exe call ^
+  --profile myapi ^
+  --method GET ^
+  --url "/v1/resources" ^
+  --pretty
+```
+
+The tool will automatically:
+1. Resolve `https://api.example.com/v1/resources` (base URL + relative path).
+2. Fetch an OAuth2 token from the saved token endpoint.
+3. Attach `Authorization: Bearer <token>` to the request.
+
+> **Tip:** You can override individual OAuth2 values at call time by passing the corresponding flag (e.g. `--oauth2-scopes "admin"`) alongside `--profile`. CLI flags always take precedence over profile defaults.
+
+<hr style="border: 0; height: 1px; background-image: linear-gradient(to right, rgba(0,0,0,0), rgba(0,122,204,0.75), rgba(0,0,0,0));">
+
+### 9. `token` command – fetch an OAuth2 token independently
+
+Use `token` when you need the access token itself (e.g. to pass it to another tool, script, or environment variable) without making a full API call.
+
+#### 9.1 Print access token to console (default)
+
+##### Bash
+
+```bash
+./go-rest-api-cli token \
+  --oauth2-token-url "https://auth.example.com/oauth2/token" \
+  --oauth2-client-id "myapp-client-id" \
+  --oauth2-client-secret "myapp-client-secret"
+```
+
+##### PowerShell
+
+```powershell
+.\go-rest-api-cli.exe token `
+  --oauth2-token-url "https://auth.example.com/oauth2/token" `
+  --oauth2-client-id "myapp-client-id" `
+  --oauth2-client-secret "myapp-client-secret"
+```
+
+##### cmd.exe
+
+```bat
+go-rest-api-cli.exe token ^
+  --oauth2-token-url "https://auth.example.com/oauth2/token" ^
+  --oauth2-client-id "myapp-client-id" ^
+  --oauth2-client-secret "myapp-client-secret"
+```
+
+Output (just the raw token string):
+
+```
+eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+<hr style="border: 0; height: 1px; background-image: linear-gradient(to right, rgba(0,0,0,0), rgba(0,122,204,0.75), rgba(0,0,0,0));">
+
+#### 9.2 Print full token response as JSON (`--json`)
+
+Returns `access_token`, `token_type`, `expires_in`, and `scope`.
+
+##### Bash
+
+```bash
+./go-rest-api-cli token \
+  --oauth2-token-url "https://auth.example.com/oauth2/token" \
+  --oauth2-client-id "myapp-client-id" \
+  --oauth2-client-secret "myapp-client-secret" \
+  --oauth2-scopes "read write" \
+  --json
+```
+
+##### PowerShell
+
+```powershell
+.\go-rest-api-cli.exe token `
+  --oauth2-token-url "https://auth.example.com/oauth2/token" `
+  --oauth2-client-id "myapp-client-id" `
+  --oauth2-client-secret "myapp-client-secret" `
+  --oauth2-scopes "read write" `
+  --json
+```
+
+##### cmd.exe
+
+```bat
+go-rest-api-cli.exe token ^
+  --oauth2-token-url "https://auth.example.com/oauth2/token" ^
+  --oauth2-client-id "myapp-client-id" ^
+  --oauth2-client-secret "myapp-client-secret" ^
+  --oauth2-scopes "read write" ^
+  --json
+```
+
+Output:
+
+```json
+{
+  "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "scope": "read write"
+}
+```
+
+<hr style="border: 0; height: 1px; background-image: linear-gradient(to right, rgba(0,0,0,0), rgba(0,122,204,0.75), rgba(0,0,0,0));">
+
+#### 9.3 Save token to a file, suppress console output (`--out` + `--quiet`)
+
+##### Bash
+
+```bash
+./go-rest-api-cli token \
+  --oauth2-token-url "https://auth.example.com/oauth2/token" \
+  --oauth2-client-id "myapp-client-id" \
+  --oauth2-client-secret "myapp-client-secret" \
+  --out token.txt \
+  --quiet
+```
+
+##### PowerShell
+
+```powershell
+.\go-rest-api-cli.exe token `
+  --oauth2-token-url "https://auth.example.com/oauth2/token" `
+  --oauth2-client-id "myapp-client-id" `
+  --oauth2-client-secret "myapp-client-secret" `
+  --out token.txt `
+  --quiet
+```
+
+##### cmd.exe
+
+```bat
+go-rest-api-cli.exe token ^
+  --oauth2-token-url "https://auth.example.com/oauth2/token" ^
+  --oauth2-client-id "myapp-client-id" ^
+  --oauth2-client-secret "myapp-client-secret" ^
+  --out token.txt ^
+  --quiet
+```
+
+`token.txt` will contain just the raw `access_token` string (file mode `0600`). Nothing is printed to the console.
+Use `--json --out token.json --quiet` to save the full JSON response silently instead.
+
+<hr style="border: 0; height: 1px; background-image: linear-gradient(to right, rgba(0,0,0,0), rgba(0,122,204,0.75), rgba(0,0,0,0));">
+
+#### 9.4 Use a saved profile (`--profile`)
+
+```bash
+# Save profile first (see section 8.2)
+./go-rest-api-cli token --profile myapi --json
+```
+
+PowerShell:
+
+```powershell
+.\go-rest-api-cli.exe token --profile myapi --json
+```
+
+cmd.exe:
+
+```bat
+go-rest-api-cli.exe token --profile myapi --json
+```
+
+<hr style="border: 0; height: 1px; background-image: linear-gradient(to right, rgba(0,0,0,0), rgba(0,122,204,0.75), rgba(0,0,0,0));">
+
+#### 9.5 Capture token into a shell variable
+
+##### Bash
+
+```bash
+TOKEN=$(./go-rest-api-cli token \
+  --oauth2-token-url "https://auth.example.com/oauth2/token" \
+  --oauth2-client-id "myapp-client-id" \
+  --oauth2-client-secret "myapp-client-secret")
+
+echo "Got token: $TOKEN"
+
+# Use it in a curl call
+curl -H "Authorization: Bearer $TOKEN" https://api.example.com/v1/data
+```
+
+##### PowerShell
+
+```powershell
+$TOKEN = .\go-rest-api-cli.exe token `
+  --oauth2-token-url "https://auth.example.com/oauth2/token" `
+  --oauth2-client-id "myapp-client-id" `
+  --oauth2-client-secret "myapp-client-secret"
+
+Write-Host "Got token: $TOKEN"
+
+# Use it in a subsequent call
+.\go-rest-api-cli.exe call `
+  --url "https://api.example.com/v1/data" `
+  --auth bearer `
+  --token $TOKEN `
+  --pretty
+```
+
+##### cmd.exe
+
+```bat
+for /f "delims=" %%T in ('go-rest-api-cli.exe token ^
+  --oauth2-token-url "https://auth.example.com/oauth2/token" ^
+  --oauth2-client-id "myapp-client-id" ^
+  --oauth2-client-secret "myapp-client-secret"') do set TOKEN=%%T
+
+echo Got token: %TOKEN%
+```
+
+<hr style="border: 0; height: 1px; background-image: linear-gradient(to right, rgba(0,0,0,0), rgba(0,122,204,0.75), rgba(0,0,0,0));">
+
 ## Running tests
 
 If you added the `*_test.go` files as described:
@@ -992,7 +1372,7 @@ go test ./... -cover
 
 - **Strategy pattern (Auth)**
   - `internal/auth.Strategy` interface.
-  - Concrete strategies: `NoAuth`, `Basic`, `Bearer`.
+  - Concrete strategies: `NoAuth`, `Basic`, `Bearer`, `OAuth2ClientCredentials`.
 
 - **Factory pattern (HTTP)**
   - `internal/httpclient.Factory` builds `*http.Request` and `*http.Client` from a config.

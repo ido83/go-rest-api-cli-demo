@@ -48,10 +48,15 @@ func (c *CallCommand) Run(args []string) error {
 		timeoutSec = fs.Int("timeout", 30, "Timeout in seconds")
 		insecure   = fs.Bool("insecure", false, "Skip TLS verification (NOT recommended for prod)")
 
-		authType = fs.String("auth", "none", "Auth: none|basic|bearer")
+		authType = fs.String("auth", "none", "Auth: none|basic|bearer|oauth2")
 		user     = fs.String("user", "", "Username for basic auth")
 		pass     = fs.String("pass", "", "Password for basic auth")
 		token    = fs.String("token", "", "Bearer token")
+
+		oauth2TokenURL     = fs.String("oauth2-token-url", "", "OAuth2 token endpoint URL")
+		oauth2ClientID     = fs.String("oauth2-client-id", "", "OAuth2 client ID")
+		oauth2ClientSecret = fs.String("oauth2-client-secret", "", "OAuth2 client secret")
+		oauth2Scopes       = fs.String("oauth2-scopes", "", "OAuth2 space-separated scopes")
 
 		pretty    = fs.Bool("pretty", false, "Pretty-print JSON responses")
 		raw       = fs.Bool("raw", false, "Print only response body (no status/headers)")
@@ -74,12 +79,16 @@ func (c *CallCommand) Run(args []string) error {
 
 	// Load profiles if requested
 	var (
-		baseURLFromProfile string
-		profileHeaders     map[string]string
-		profileAuthType    string
-		profileUser        string
-		profilePass        string
-		profileToken       string
+		baseURLFromProfile     string
+		profileHeaders         map[string]string
+		profileAuthType        string
+		profileUser            string
+		profilePass            string
+		profileToken           string
+		profileOAuth2TokenURL  string
+		profileOAuth2ClientID  string
+		profileOAuth2ClientSecret string
+		profileOAuth2Scopes    string
 	)
 	if *profileName != "" {
 		cfg, err := cfgstore.Load()
@@ -96,6 +105,10 @@ func (c *CallCommand) Run(args []string) error {
 		profileUser = p.User
 		profilePass = p.Pass
 		profileToken = p.Token
+		profileOAuth2TokenURL = p.OAuth2TokenURL
+		profileOAuth2ClientID = p.OAuth2ClientID
+		profileOAuth2ClientSecret = p.OAuth2ClientSecret
+		profileOAuth2Scopes = p.OAuth2Scopes
 	}
 
 	// Effective URL (profile base URL + relative path)
@@ -192,6 +205,10 @@ func (c *CallCommand) Run(args []string) error {
 	finalUser := *user
 	finalPass := *pass
 	finalToken := *token
+	finalOAuth2TokenURL := *oauth2TokenURL
+	finalOAuth2ClientID := *oauth2ClientID
+	finalOAuth2ClientSecret := *oauth2ClientSecret
+	finalOAuth2Scopes := *oauth2Scopes
 
 	// Use profile defaults if CLI didn't override
 	if *profileName != "" {
@@ -207,6 +224,18 @@ func (c *CallCommand) Run(args []string) error {
 		if finalToken == "" && profileToken != "" {
 			finalToken = profileToken
 		}
+		if finalOAuth2TokenURL == "" {
+			finalOAuth2TokenURL = profileOAuth2TokenURL
+		}
+		if finalOAuth2ClientID == "" {
+			finalOAuth2ClientID = profileOAuth2ClientID
+		}
+		if finalOAuth2ClientSecret == "" {
+			finalOAuth2ClientSecret = profileOAuth2ClientSecret
+		}
+		if finalOAuth2Scopes == "" {
+			finalOAuth2Scopes = profileOAuth2Scopes
+		}
 	}
 
 	var authStrategy auth.Strategy = auth.NoAuth{}
@@ -215,6 +244,21 @@ func (c *CallCommand) Run(args []string) error {
 		authStrategy = auth.Basic{User: finalUser, Pass: finalPass}
 	case "bearer":
 		authStrategy = auth.Bearer{Token: finalToken}
+	case "oauth2":
+		var scopes []string
+		if finalOAuth2Scopes != "" {
+			scopes = strings.Fields(finalOAuth2Scopes)
+		}
+		o := &auth.OAuth2ClientCredentials{
+			TokenURL:     finalOAuth2TokenURL,
+			ClientID:     finalOAuth2ClientID,
+			ClientSecret: finalOAuth2ClientSecret,
+			Scopes:       scopes,
+		}
+		if err := o.FetchToken(); err != nil {
+			return fmt.Errorf("oauth2: %w", err)
+		}
+		authStrategy = o
 	case "", "none":
 		// default no auth
 	default:
